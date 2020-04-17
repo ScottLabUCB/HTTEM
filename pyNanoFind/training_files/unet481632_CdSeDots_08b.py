@@ -44,36 +44,36 @@ def up(filters, input_, down_):
     up_ = Activation('relu')(up_)
     return up_
 
-def get_unet(input_shape, num_classes=1):
+def get_unet_1024(input_shape, num_classes=1):
     inputs = Input(shape=input_shape)
 
-    down0, down0_res = down(4, inputs)
-    down1, down1_res = down(8, down0)
-    down2, down2_res = down(16, down1)
-    down3, down3_res = down(32, down2)
+    #down0b, down0b_res = down(8, inputs)
+    down0a, down0a_res = down(4, inputs)
+    down0, down0_res = down(8, down0a)
+    down1, down1_res = down(16, down0)
+    down2, down2_res = down(32, down1)
 
-    center = Conv2D(32, (3, 3), padding='same')(down3)
+    center = Conv2D(32, (3, 3), padding='same')(down2)
     center = BatchNormalization(epsilon=1e-4)(center)
     center = Activation('relu')(center)
     center = Conv2D(32, (3, 3), padding='same')(center)
     center = BatchNormalization(epsilon=1e-4)(center)
     center = Activation('relu')(center)
 
-    up3 = up(32, center, down3_res)
-    up2 = up(16, up3, down2_res)
-    up1 = up(8, up2, down1_res)
-    up0 = up(4, up1, down0_res)
+    up2 = up(32, center, down2_res)
+    up1 = up(16, up2, down1_res)
+    up0 = up(8, up1, down0_res)
+    up0a = up(4, up0, down0a_res)
+    #up0b = up(8, up0a, down0b_res)
 
-    classify = Conv2D(num_classes, (1, 1), activation='sigmoid', name='final_layer')(up0)
+    classify = Conv2D(num_classes, (1, 1), activation='softmax', name='final_layer')(up0a)
 
     model = Model(inputs=inputs, outputs=classify)
 
     return model
 
-
-
-X = h5py.File('/global/scratch/cgroschner/combined_data/Bal_MedFilt_AuCdSeDots_20190726_v2.h5','r')['images'][:,:,:,:]
-Y = h5py.File('/global/scratch/cgroschner/combined_data/Bal_MedFilt_AuCdSeDots_20190726_maps_v2.h5','r')['maps'][:,:,:,:]
+X = h5py.File('/global/scratch/cgroschner/combined_data/Bal_MedFilt_CdSeRelabel512Images_20190726.h5','r')['images'][:,:,:,:]
+Y = h5py.File('/global/scratch/cgroschner/combined_data/Bal_unFilt_CdSeRelabel512Images_20190724_maps.h5','r')['maps'][:,:,:,:]
 X = X/X.max()
 Y = Y/Y.max()
 trainX = X[:129,:,:,:]
@@ -95,9 +95,9 @@ mask_generator_test = mask_datagen.flow(trainY,batch_size = 20, seed = seed,subs
 train_generator = zip(image_generator_train, mask_generator_train)
 test_generator = zip(image_generator_test, mask_generator_test)
 
-save_weights = '/global/scratch/cgroschner/unet32_AuCdSeDots_04b.h5'
-save_weights_final = '/global/scratch/cgroschner/unet32_AuCdSeDots_04b_final.h5'
-save_predictions = '/global/scratch/cgroschner/unet32_AuCdSeDots_04b.npy'
+save_weights = '/global/scratch/cgroschner/unet481632_CdSeDots_08b.h5'
+save_weights_final = '/global/scratch/cgroschner/unet481632_CdSeDots_08b_final.h5'
+save_predictions = '/global/scratch/cgroschner/unet481632_CdSeDots_08b.npy'
 
 if os.path.isfile(save_weights) == True:
     raise(RuntimeError('FILE ALREADY EXISTS RENAME WEIGHT FILE'))
@@ -118,12 +118,12 @@ modelCheckpoint = ModelCheckpoint(save_weights,
                                   save_weights_only = True)
 callbacks_list = [modelCheckpoint,earlyStopping]
 
-model = get_unet((512,512,1),2)
+model = get_unet_1024((512,512,1),2)
 model.compile(loss='categorical_crossentropy', optimizer=Adam(lr=1e-4), metrics=[dice_coef])
 print(model.summary())
-model.fit_generator(train_generator,steps_per_epoch=1000,epochs=3,callbacks = callbacks_list,validation_data=test_generator,validation_steps=500,verbose = 2)
+model.fit_generator(train_generator,steps_per_epoch=1000,epochs=10,callbacks = callbacks_list,validation_data=test_generator,validation_steps=500,verbose = 2)
 model.save_weights(save_weights_final)
-predY = model.predict(trainX[129:],steps=2,verbose=1)
+predY = model.predict_generator(test_generator,steps=2,verbose=1)
 np.save(save_predictions, predY)
 validation_score = model.evaluate_generator(test_generator,steps=5)
 print(validation_score)
